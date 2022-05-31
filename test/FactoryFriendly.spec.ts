@@ -15,7 +15,7 @@ describe("Module works with factory", () => {
   const baseSetup = deployments.createFixture(async () => {
     await deployments.fixture();
     const Factory = await hre.ethers.getContractFactory("ModuleProxyFactory");
-    const DelayModifier = await hre.ethers.getContractFactory("Delay");
+    const DelayModifier = await hre.ethers.getContractFactory("SecretDelay");
     const factory = await Factory.deploy();
 
     const masterCopy = await DelayModifier.deploy(
@@ -70,7 +70,10 @@ describe("Module works with factory", () => {
       ({ event }: { event: string }) => event === "ModuleProxyCreation"
     );
 
-    const newProxy = await hre.ethers.getContractAt("Delay", newProxyAddress);
+    const newProxy = await hre.ethers.getContractAt(
+      "SecretDelay",
+      newProxyAddress
+    );
     expect(await newProxy.txCooldown()).to.be.eq(cooldown);
     expect(await newProxy.txExpiration()).to.be.eq(expiration);
   });
