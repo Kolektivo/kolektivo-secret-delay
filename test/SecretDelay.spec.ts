@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import hre, { deployments, waffle } from "hardhat";
+import hre, { deployments, waffle, ethers } from "hardhat";
 import "@nomiclabs/hardhat-ethers";
 
 const ZeroState =
@@ -170,6 +170,79 @@ describe("SecretDelay", async () => {
       await expect(
         await modifier.getModulesPaginated(FirstAddress, 10)
       ).to.be.deep.equal([[user1.address], FirstAddress]);
+    });
+  });
+
+  describe("enqueueSecretTx()", async () => {
+    let hashedTx: string;
+
+    beforeEach("hash transaction", () => {
+      hashedTx = ethers.utils.solidityKeccak256(
+        ["address", "uint256", "bytes", "uint8"],
+        [user1.address, 0, "0x", 0]
+      );
+    });
+
+    it("throws if not authorized", async () => {
+      const { modifier } = await setupTestWithTestAvatar();
+      await expect(modifier.enqueueSecretTx(hashedTx)).to.be.revertedWith(
+        "Module not authorized"
+      );
+    });
+
+    it("increments queueNonce", async () => {
+      const { avatar, modifier } = await setupTestWithTestAvatar();
+      const tx = await modifier.populateTransaction.enableModule(user1.address);
+      await avatar.exec(modifier.address, 0, tx.data);
+      let queueNonce = await modifier.queueNonce();
+
+      await expect(queueNonce._hex).to.be.equals("0x00");
+      await modifier.enqueueSecretTx(hashedTx);
+      queueNonce = await modifier.queueNonce();
+      await expect(queueNonce._hex).to.be.equals("0x01");
+    });
+
+    it("sets txHash", async () => {
+      const { avatar, modifier } = await setupTestWithTestAvatar();
+      const tx = await modifier.populateTransaction.enableModule(user1.address);
+      await avatar.exec(modifier.address, 0, tx.data);
+
+      let txHash = await modifier.getTransactionHash(user1.address, 0, "0x", 0);
+
+      await expect(await modifier.getTxHash(0)).to.be.equals(ZeroState);
+      await modifier.enqueueSecretTx(hashedTx);
+      await expect(await modifier.getTxHash(0)).to.be.equals(txHash);
+    });
+
+    it("sets txCreatedAt", async () => {
+      const { avatar, modifier } = await setupTestWithTestAvatar();
+      const tx = await modifier.populateTransaction.enableModule(user1.address);
+      let expectedTimestamp = await modifier.getTxCreatedAt(0);
+      await avatar.exec(modifier.address, 0, tx.data);
+
+      await expect(expectedTimestamp._hex).to.be.equals("0x00");
+      let receipt = await modifier.enqueueSecretTx(hashedTx);
+
+      let blockNumber = receipt.blockNumber;
+
+      let block = await hre.network.provider.send("eth_getBlockByNumber", [
+        "latest",
+        false,
+      ]);
+
+      expectedTimestamp = await modifier.getTxCreatedAt(0);
+      await expect(block.timestamp).to.be.equals(expectedTimestamp._hex);
+    });
+
+    it("emits transaction details", async () => {
+      const { avatar, modifier } = await setupTestWithTestAvatar();
+      const tx = await modifier.populateTransaction.enableModule(user1.address);
+      await avatar.exec(modifier.address, 0, tx.data);
+      const expectedQueueNonce = await modifier.queueNonce;
+
+      await expect(await modifier.enqueueSecretTx(hashedTx))
+        .to.emit(modifier, "SecretTransactionAdded")
+        .withArgs(expectedQueueNonce, hashedTx);
     });
   });
 

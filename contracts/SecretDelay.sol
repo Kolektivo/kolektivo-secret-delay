@@ -18,6 +18,10 @@ contract SecretDelay is Modifier {
     bytes data,
     Enum.Operation operation
   );
+  event SecretTransactionAdded(
+    uint256 indexed queueNonce,
+    bytes32 indexed txHash
+  );
 
   uint256 public txCooldown;
   uint256 public txExpiration;
@@ -131,6 +135,21 @@ contract SecretDelay is Modifier {
       data,
       operation
     );
+    queueNonce++;
+    success = true;
+  }
+
+  /// @dev Adds a secret transaction to the queue (same as avatar interface so that this can be placed between other modules and the avatar).
+  /// @param hashedTransaction hash of the transaction
+  /// @notice Can only be called by enabled modules
+  function enqueueSecretTx(bytes32 hashedTransaction)
+    public
+    moduleOnly
+    returns (bool success)
+  {
+    txHash[queueNonce] = hashedTransaction;
+    txCreatedAt[queueNonce] = block.timestamp;
+    emit SecretTransactionAdded(queueNonce, txHash[queueNonce]);
     queueNonce++;
     success = true;
   }
