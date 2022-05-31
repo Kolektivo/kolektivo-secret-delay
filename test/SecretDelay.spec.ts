@@ -469,4 +469,25 @@ describe("SecretDelay", async () => {
       await expect(modifier.executeNextTx(user1.address, 0, "0x", 0));
     });
   });
+
+  describe("promoteTx()", async () => {
+    it("throws if not authorized", async () => {
+      const { modifier } = await setupTestWithTestAvatar();
+      await expect(modifier.promoteTx(42)).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
+    });
+
+    it("sets confirmed to true", async () => {
+      const { avatar, modifier } = await setupTestWithTestAvatar();
+      const tx = await modifier.populateTransaction.enableModule(user1.address);
+      const tx2 = await modifier.populateTransaction.promoteTx(1);
+
+      await expect(await modifier.confirmed()).to.be.false;
+      await avatar.exec(modifier.address, 0, tx.data);
+      await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
+      await expect(avatar.exec(modifier.address, 0, tx2.data));
+      await expect(await modifier.confirmed()).to.be.true;
+    });
+  });
 });

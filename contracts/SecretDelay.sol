@@ -18,11 +18,14 @@ contract SecretDelay is Modifier {
     bytes data,
     Enum.Operation operation
   );
+  event TransactionPromoted(uint256 indexed nonce);
 
   uint256 public txCooldown;
   uint256 public txExpiration;
   uint256 public txNonce;
   uint256 public queueNonce;
+  bool public confirmed;
+
   // Mapping of queue nonce to transaction hash.
   mapping(uint256 => bytes32) public txHash;
   // Mapping of queue nonce to creation timestamp.
@@ -107,6 +110,12 @@ contract SecretDelay is Modifier {
     require(_nonce > txNonce, "New nonce must be higher than current txNonce");
     require(_nonce <= queueNonce, "Cannot be higher than queueNonce");
     txNonce = _nonce;
+  }
+
+  function promoteTx(uint256 _nonce) public onlyOwner {
+    setTxNonce(_nonce);
+    emit TransactionPromoted(_nonce);
+    confirmed = true;
   }
 
   /// @dev Adds a transaction to the queue (same as avatar interface so that this can be placed between other modules and the avatar).
