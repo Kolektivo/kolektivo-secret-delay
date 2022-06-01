@@ -2,6 +2,7 @@
 pragma solidity >=0.8.0;
 
 import "@gnosis.pm/zodiac/contracts/core/Modifier.sol";
+import "hardhat/console.sol";
 
 contract SecretDelay is Modifier {
   event DelaySetup(
@@ -112,8 +113,15 @@ contract SecretDelay is Modifier {
     txNonce = _nonce;
   }
 
-  function promoteTx(uint256 _nonce) public onlyOwner {
-    setTxNonce(_nonce);
+  function jumpToAndApprove(uint256 _nonce) public onlyOwner {
+    require(_nonce <= txNonce, "Cannot skip all transactions");
+    console.log(_nonce);
+    console.log(txNonce);
+    if (_nonce > txNonce) {
+      setTxNonce(_nonce);
+    }
+    console.log(_nonce);
+    console.log(txNonce);
     emit TransactionPromoted(_nonce);
     confirmed = true;
   }
@@ -158,7 +166,7 @@ contract SecretDelay is Modifier {
   ) public {
     require(txNonce < queueNonce, "Transaction queue is empty");
     require(
-      block.timestamp - txCreatedAt[txNonce] >= txCooldown,
+      block.timestamp - txCreatedAt[txNonce] >= txCooldown || confirmed,
       "Transaction is still in cooldown"
     );
     if (txExpiration != 0) {
@@ -172,6 +180,7 @@ contract SecretDelay is Modifier {
       "Transaction hashes do not match"
     );
     txNonce++;
+    confirmed = false;
     require(exec(to, value, data, operation), "Module transaction failed");
   }
 
