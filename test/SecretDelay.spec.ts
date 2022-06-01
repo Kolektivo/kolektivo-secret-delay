@@ -370,7 +370,7 @@ describe("SecretDelay", async () => {
       ).to.be.revertedWith("Transaction is still in cooldown");
     });
 
-    it("executes during cooldown if transaction had been confirmed", async () => {
+    it("executes during cooldown if transaction had been approved", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
 
       const TestContract = await ethers.getContractFactory("TestContract");
@@ -394,7 +394,7 @@ describe("SecretDelay", async () => {
         modifier.executeNextTx(user1.address, 42, "0x", 0)
       ).to.be.revertedWith("Transaction is still in cooldown");
 
-      let tx3 = await modifier.populateTransaction.jumpToAndApprove(0);
+      let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(0);
       await avatar.exec(modifier.address, 0, tx3.data);
 
       await avatar.setModule(modifier.address);
@@ -504,50 +504,60 @@ describe("SecretDelay", async () => {
     });
   });
 
-  describe("jumpToAndApprove()", async () => {
+  describe("setTxNonceAndApprove()", async () => {
     it("throws if not authorized", async () => {
       const { modifier } = await setupTestWithTestAvatar();
-      await expect(modifier.jumpToAndApprove(42)).to.be.revertedWith(
+      await expect(modifier.setTxNonceAndApprove(42)).to.be.revertedWith(
         "Ownable: caller is not the owner"
       );
     });
 
-    it("sets confirmed to true", async () => {
+    it("reverts if attempting to skip all transactions", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
-      const tx2 = await modifier.populateTransaction.jumpToAndApprove(0);
+      const tx2 = await modifier.populateTransaction.setTxNonceAndApprove(1);
 
-      expect(await modifier.confirmed()).to.be.false;
+      expect(await modifier.approved()).to.be.false;
 
       await avatar.exec(modifier.address, 0, tx.data);
-      await avatar.exec(modifier.address, 0, tx2.data);
+      // await avatar.exec(modifier.address, 0, tx2.data);
 
-      expect(await modifier.confirmed()).to.be.true;
+      await expect(
+        avatar.exec(modifier.address, 0, tx2.data)
+      ).to.be.revertedWith("Cannot skip all transactions");
     });
 
-    it("reverts if attempting to kill all transactions", async () => {
+    it("increases the txNonce and resets approved when executed", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
-      const tx = await modifier.populateTransaction.enableModule(user1.address);
-      const tx2 = await modifier.populateTransaction.jumpToAndApprove(1);
+      const TestContract = await ethers.getContractFactory("TestContract");
+      const testContract = await TestContract.deploy();
+      await testContract.transferOwnership(avatar.address);
 
-      expect(await modifier.confirmed()).to.be.false;
-
+      let tx = await modifier.populateTransaction.setTxCooldown(42);
       await avatar.exec(modifier.address, 0, tx.data);
-      await avatar.exec(modifier.address, 0, tx2.data);
 
-      expect(await modifier.confirmed()).to.be.true;
-    });
-
-    it("increases the txNonce if promoted nonce is not current nonce", async () => {
-      const { avatar, modifier } = await setupTestWithTestAvatar();
-      const tx = await modifier.populateTransaction.enableModule(user1.address);
-      const tx2 = await modifier.populateTransaction.jumpToAndApprove(1);
-
-      await expect(await modifier.confirmed()).to.be.false;
+      tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
-      await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
-      await expect(avatar.exec(modifier.address, 0, tx2.data));
-      await expect(await modifier.confirmed()).to.be.true;
+
+      const tx2 = await testContract.populateTransaction.pushButton();
+      await modifier.execTransactionFromModule(
+        testContract.address,
+        0,
+        tx2.data,
+        0
+      );
+
+      let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(0);
+      await avatar.exec(modifier.address, 0, tx3.data);
+
+      await avatar.setModule(modifier.address);
+
+      await expect(
+        modifier.executeNextTx(testContract.address, 0, tx2.data, 0)
+      ).to.emit(testContract, "ButtonPushed");
+
+      expect(await modifier.txNonce()).to.be.equal(await modifier.queueNonce());
+      expect(await modifier.approved()).to.be.false;
     });
   });
 });

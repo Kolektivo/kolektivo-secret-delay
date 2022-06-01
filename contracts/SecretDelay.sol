@@ -25,7 +25,7 @@ contract SecretDelay is Modifier {
   uint256 public txExpiration;
   uint256 public txNonce;
   uint256 public queueNonce;
-  bool public confirmed;
+  bool public approved;
 
   // Mapping of queue nonce to transaction hash.
   mapping(uint256 => bytes32) public txHash;
@@ -111,19 +111,14 @@ contract SecretDelay is Modifier {
     require(_nonce > txNonce, "New nonce must be higher than current txNonce");
     require(_nonce <= queueNonce, "Cannot be higher than queueNonce");
     txNonce = _nonce;
+    if (approved) approved = false;
   }
 
-  function jumpToAndApprove(uint256 _nonce) public onlyOwner {
-    require(_nonce <= txNonce, "Cannot skip all transactions");
-    console.log(_nonce);
-    console.log(txNonce);
-    if (_nonce > txNonce) {
-      setTxNonce(_nonce);
-    }
-    console.log(_nonce);
-    console.log(txNonce);
-    emit TransactionPromoted(_nonce);
-    confirmed = true;
+  function setTxNonceAndApprove(uint256 _nonce) public onlyOwner {
+    // cannot
+    require(_nonce < queueNonce, "Cannot skip all transactions");
+    if (_nonce > txNonce) setTxNonce(_nonce);
+    approved = true;
   }
 
   /// @dev Adds a transaction to the queue (same as avatar interface so that this can be placed between other modules and the avatar).
@@ -166,7 +161,7 @@ contract SecretDelay is Modifier {
   ) public {
     require(txNonce < queueNonce, "Transaction queue is empty");
     require(
-      block.timestamp - txCreatedAt[txNonce] >= txCooldown || confirmed,
+      (block.timestamp - txCreatedAt[txNonce] >= txCooldown) || approved,
       "Transaction is still in cooldown"
     );
     if (txExpiration != 0) {
@@ -180,7 +175,7 @@ contract SecretDelay is Modifier {
       "Transaction hashes do not match"
     );
     txNonce++;
-    confirmed = false;
+    approved = false;
     require(exec(to, value, data, operation), "Module transaction failed");
   }
 
