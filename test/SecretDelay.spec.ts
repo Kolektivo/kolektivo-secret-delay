@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import hre, { deployments, waffle, ethers } from "hardhat";
 import "@nomiclabs/hardhat-ethers";
+import { Contract, PopulatedTransaction, Transaction } from "ethers";
 
 const ZeroState =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -29,6 +30,14 @@ describe("SecretDelay", async () => {
     );
     return { ...base, Modifier, modifier };
   });
+
+  const setupTestContract = async (address: string) => {
+    const TestContract = await ethers.getContractFactory("TestContract");
+    const testContract = await TestContract.deploy();
+    await testContract.transferOwnership(address);
+
+    return testContract;
+  };
 
   const [user1] = waffle.provider.getWallets();
 
@@ -265,6 +274,43 @@ describe("SecretDelay", async () => {
       await expect(avatar.exec(modifier.address, 0, tx2.data));
       txNonce = await modifier.txNonce();
       await expect(txNonce._hex).to.be.equals("0x01");
+
+      await expect(await modifier.approved()).to.be.false;
+    });
+
+    context("when current tx has been approved", () => {
+      let testContract: Contract, modifier: Contract, avatar: Contract;
+
+      beforeEach("enqueue and approve", async () => {
+        ({ avatar, modifier } = await setupTestWithTestAvatar());
+        testContract = await setupTestContract(avatar.address);
+
+        let tx = await modifier.populateTransaction.setTxCooldown(42);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        tx = await modifier.populateTransaction.enableModule(user1.address);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        await avatar.setModule(modifier.address);
+
+        const tx2 = await testContract.populateTransaction.pushButton();
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          tx2.data,
+          0
+        );
+
+        let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(0);
+        await avatar.exec(modifier.address, 0, tx3.data);
+      });
+
+      it("sets approved to false", async () => {
+        const tx = await modifier.populateTransaction.setTxNonce(1);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        expect(await modifier.approved()).to.be.false;
+      });
     });
   });
 
@@ -558,6 +604,50 @@ describe("SecretDelay", async () => {
 
       expect(await modifier.txNonce()).to.be.equal(await modifier.queueNonce());
       expect(await modifier.approved()).to.be.false;
+    });
+
+    context("with two enqueued transactions", () => {
+      let testContract: Contract, modifier: Contract, avatar: Contract;
+
+      let tx2: PopulatedTransaction;
+
+      beforeEach("enqueue two tx and approve second tx", async () => {
+        ({ avatar, modifier } = await setupTestWithTestAvatar());
+        testContract = await setupTestContract(avatar.address);
+
+        let tx = await modifier.populateTransaction.setTxCooldown(42);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        tx = await modifier.populateTransaction.enableModule(user1.address);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        await avatar.setModule(modifier.address);
+
+        tx2 = await testContract.populateTransaction.pushButton();
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          tx2.data,
+          0
+        );
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          tx2.data,
+          0
+        );
+
+        let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(1);
+        await avatar.exec(modifier.address, 0, tx3.data);
+      });
+
+      it("executes the second tx", async () => {
+        await expect(
+          modifier.executeNextTx(testContract.address, 0, tx2.data, 0)
+        ).to.emit(testContract, "ButtonPushed");
+        expect(await modifier.queueNonce()).to.equal(2);
+        expect(await modifier.txNonce()).to.equal(2);
+      });
     });
   });
 });
