@@ -7,7 +7,7 @@ const ZeroState =
 const ZeroAddress = "0x0000000000000000000000000000000000000000";
 const FirstAddress = "0x0000000000000000000000000000000000000001";
 
-describe("DelayModifier", async () => {
+describe("SecretDelay", async () => {
   const baseSetup = deployments.createFixture(async () => {
     await deployments.fixture();
     const Avatar = await hre.ethers.getContractFactory("TestAvatar");
