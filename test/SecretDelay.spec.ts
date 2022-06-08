@@ -1,6 +1,8 @@
 import { expect } from "chai";
 import hre, { deployments, waffle, ethers } from "hardhat";
+import { Contract } from "ethers";
 import "@nomiclabs/hardhat-ethers";
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/dist/src/signer-with-address";
 
 const ZeroState =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -30,7 +32,7 @@ describe("SecretDelay", async () => {
     return { ...base, Modifier, modifier };
   });
 
-  const [user1] = waffle.provider.getWallets();
+  const [user1, user2] = waffle.provider.getWallets();
 
   describe("setUp()", async () => {
     it("throws if not enough time between txCooldown and txExpiration", async () => {
@@ -174,24 +176,27 @@ describe("SecretDelay", async () => {
   });
 
   describe("enqueueSecretTx()", async () => {
-    let hashedTx: string;
+    let avatar: Contract, modifier: Contract, hashedTx: string, salt: number;
 
-    beforeEach("hash transaction", () => {
+    beforeEach("setup contracts", async () => {
+      ({ avatar, modifier } = await setupTestWithTestAvatar());
+    });
+
+    beforeEach("hash transaction w/ current salt", async () => {
+      salt = await modifier.salt();
       hashedTx = ethers.utils.solidityKeccak256(
-        ["address", "uint256", "bytes", "uint8"],
-        [user1.address, 0, "0x", 0]
+        ["address", "uint256", "bytes", "uint8", "uint256"],
+        [user1.address, 0, "0x", 0, salt]
       );
     });
 
     it("throws if not authorized", async () => {
-      const { modifier } = await setupTestWithTestAvatar();
       await expect(modifier.enqueueSecretTx(hashedTx)).to.be.revertedWith(
         "Module not authorized"
       );
     });
 
     it("increments queueNonce", async () => {
-      const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
       let queueNonce = await modifier.queueNonce();
@@ -203,11 +208,16 @@ describe("SecretDelay", async () => {
     });
 
     it("sets txHash", async () => {
-      const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
 
-      let txHash = await modifier.getTransactionHash(user1.address, 0, "0x", 0);
+      let txHash = await modifier.getSecretTransactionHash(
+        user1.address,
+        0,
+        "0x",
+        0,
+        salt
+      );
 
       await expect(await modifier.getTxHash(0)).to.be.equals(ZeroState);
       await modifier.enqueueSecretTx(hashedTx);
@@ -215,7 +225,6 @@ describe("SecretDelay", async () => {
     });
 
     it("sets txCreatedAt", async () => {
-      const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       let expectedTimestamp = await modifier.getTxCreatedAt(0);
       await avatar.exec(modifier.address, 0, tx.data);
@@ -235,14 +244,21 @@ describe("SecretDelay", async () => {
     });
 
     it("emits transaction details", async () => {
-      const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
       const expectedQueueNonce = await modifier.queueNonce;
 
       await expect(await modifier.enqueueSecretTx(hashedTx))
         .to.emit(modifier, "SecretTransactionAdded")
-        .withArgs(expectedQueueNonce, hashedTx);
+        .withArgs(expectedQueueNonce, hashedTx, salt);
+    });
+
+    it("increments the salt", async () => {
+      const tx = await modifier.populateTransaction.enableModule(user1.address);
+      await avatar.exec(modifier.address, 0, tx.data);
+      await modifier.enqueueSecretTx(hashedTx);
+
+      expect(await modifier.salt()).to.equal(salt + 1);
     });
   });
 

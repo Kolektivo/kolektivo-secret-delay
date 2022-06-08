@@ -2,8 +2,11 @@
 pragma solidity >=0.8.0;
 
 import "@gnosis.pm/zodiac/contracts/core/Modifier.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
 
 contract SecretDelay is Modifier {
+  using CountersUpgradeable for CountersUpgradeable.Counter;
+
   event DelaySetup(
     address indexed initiator,
     address indexed owner,
@@ -20,9 +23,11 @@ contract SecretDelay is Modifier {
   );
   event SecretTransactionAdded(
     uint256 indexed queueNonce,
-    bytes32 indexed txHash
+    bytes32 indexed txHash,
+    uint256 indexed salt
   );
 
+  CountersUpgradeable.Counter public salt;
   uint256 public txCooldown;
   uint256 public txExpiration;
   uint256 public txNonce;
@@ -149,8 +154,9 @@ contract SecretDelay is Modifier {
   {
     txHash[queueNonce] = hashedTransaction;
     txCreatedAt[queueNonce] = block.timestamp;
-    emit SecretTransactionAdded(queueNonce, txHash[queueNonce]);
+    emit SecretTransactionAdded(queueNonce, txHash[queueNonce], salt.current());
     queueNonce++;
+    salt.increment();
     success = true;
   }
 
@@ -202,6 +208,16 @@ contract SecretDelay is Modifier {
     Enum.Operation operation
   ) public pure returns (bytes32) {
     return keccak256(abi.encodePacked(to, value, data, operation));
+  }
+
+  function getSecretTransactionHash(
+    address to,
+    uint256 value,
+    bytes memory data,
+    Enum.Operation operation,
+    uint256 _salt
+  ) public pure returns (bytes32) {
+    return keccak256(abi.encodePacked(to, value, data, operation, _salt));
   }
 
   function getTxHash(uint256 _nonce) public view returns (bytes32) {
