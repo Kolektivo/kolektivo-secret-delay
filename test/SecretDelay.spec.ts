@@ -528,6 +528,46 @@ describe("SecretDelay", async () => {
     });
   });
 
+  describe("executeNextSecretTx()", () => {
+    let avatar: Contract, modifier: Contract, salt: number;
+
+    const ethAmount = 420;
+
+    beforeEach("setup contracts", async () => {
+      ({ avatar, modifier } = await setupTestWithTestAvatar());
+      salt = await modifier.salt();
+      await avatar.setModule(modifier.address);
+      await avatar.exec(
+        modifier.address,
+        0,
+        (await modifier.populateTransaction.enableModule(user1.address)).data
+      );
+      await user1.sendTransaction({ to: avatar.address, value: ethAmount });
+    });
+
+    beforeEach("enqueue secret tx", async () => {
+      const hashedTx = ethers.utils.solidityKeccak256(
+        ["address", "uint256", "bytes", "uint8", "uint256"],
+        [FirstAddress, ethAmount, "0x", 0, salt]
+      );
+      await modifier.enqueueSecretTx(hashedTx);
+    });
+
+    it("executes the transaction", async () => {
+      const { provider } = ethers;
+      await modifier.executeNextSecretTx(
+        FirstAddress,
+        ethAmount,
+        "0x",
+        0,
+        salt
+      );
+      const balance = await provider.getBalance(FirstAddress);
+
+      expect(balance).to.equal(ethAmount);
+    });
+  });
+
   describe("skipExpired()", async () => {
     it("should skip to the next nonce that has not yet expired", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();

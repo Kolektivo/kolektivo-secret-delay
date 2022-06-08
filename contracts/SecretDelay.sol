@@ -37,6 +37,21 @@ contract SecretDelay is Modifier {
   // Mapping of queue nonce to creation timestamp.
   mapping(uint256 => uint256) public txCreatedAt;
 
+  modifier isExecutable {
+    require(txNonce < queueNonce, "Transaction queue is empty");
+    require(
+      block.timestamp - txCreatedAt[txNonce] >= txCooldown,
+      "Transaction is still in cooldown"
+    );
+    if (txExpiration != 0) {
+      require(
+        txCreatedAt[txNonce] + txCooldown + txExpiration >= block.timestamp,
+        "Transaction expired"
+      );
+    }
+    _;
+  }
+
   /// @param _owner Address of the owner
   /// @param _avatar Address of the avatar (e.g. a Gnosis Safe)
   /// @param _target Address of the contract that will call exec function
@@ -144,23 +159,19 @@ contract SecretDelay is Modifier {
     success = true;
   }
 
-  /// @dev Adds a secret transaction to the queue (same as avatar interface so that this can be placed between other modules and the avatar).
+  /// @dev Adds a the has of a transaction to the queue
   /// @param hashedTransaction hash of the transaction
   /// @notice Can only be called by enabled modules
-  function enqueueSecretTx(bytes32 hashedTransaction)
-    public
-    moduleOnly
-    returns (bool success)
-  {
+  function enqueueSecretTx(bytes32 hashedTransaction) public moduleOnly {
     txHash[queueNonce] = hashedTransaction;
     txCreatedAt[queueNonce] = block.timestamp;
     emit SecretTransactionAdded(queueNonce, txHash[queueNonce], salt.current());
+
     queueNonce++;
     salt.increment();
-    success = true;
   }
 
-  /// @dev Executes the next transaction only if the cooldown has passed and the transaction has not expired
+  /// @dev Executes the next transaction only if the cooldown has passed or tx has been approved and the transaction has not expired
   /// @param to Destination address of module transaction
   /// @param value Ether value of module transaction
   /// @param data Data payload of module transaction
@@ -171,20 +182,31 @@ contract SecretDelay is Modifier {
     uint256 value,
     bytes calldata data,
     Enum.Operation operation
-  ) public {
-    require(txNonce < queueNonce, "Transaction queue is empty");
-    require(
-      block.timestamp - txCreatedAt[txNonce] >= txCooldown,
-      "Transaction is still in cooldown"
-    );
-    if (txExpiration != 0) {
-      require(
-        txCreatedAt[txNonce] + txCooldown + txExpiration >= block.timestamp,
-        "Transaction expired"
-      );
-    }
+  ) public isExecutable {
     require(
       txHash[txNonce] == getTransactionHash(to, value, data, operation),
+      "Transaction hashes do not match"
+    );
+    txNonce++;
+    require(exec(to, value, data, operation), "Module transaction failed");
+  }
+
+  /// @dev Executes the next transaction only if the cooldown has passed or tx has been approved and the transaction has not expired
+  /// @param to Destination address of module transaction
+  /// @param value Ether value of module transaction
+  /// @param data Data payload of module transaction
+  /// @param operation Operation type of module transaction
+  /// @param _salt Salt that was used for hashing the tx originally
+  function executeNextSecretTx(
+    address to,
+    uint256 value,
+    bytes calldata data,
+    Enum.Operation operation,
+    uint256 _salt
+  ) public isExecutable {
+    require(
+      txHash[txNonce] ==
+        getSecretTransactionHash(to, value, data, operation, _salt),
       "Transaction hashes do not match"
     );
     txNonce++;
