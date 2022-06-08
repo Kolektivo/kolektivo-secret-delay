@@ -553,6 +553,20 @@ describe("SecretDelay", async () => {
       await modifier.enqueueSecretTx(hashedTx);
     });
 
+    it("reverts if hashes don't match: 'Transaction hashes do not match'", async () => {
+      const wrongSalt = 69;
+
+      await expect(
+        modifier.executeNextSecretTx(
+          FirstAddress,
+          ethAmount,
+          "0x",
+          0,
+          wrongSalt
+        )
+      ).to.be.revertedWith("Transaction hashes do not match");
+    });
+
     it("executes the transaction", async () => {
       const { provider } = ethers;
       await modifier.executeNextSecretTx(
