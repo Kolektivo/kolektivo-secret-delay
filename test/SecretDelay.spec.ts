@@ -1,6 +1,7 @@
 import { expect } from "chai";
-import hre, { deployments, waffle } from "hardhat";
+import hre, { deployments, waffle, ethers } from "hardhat";
 import "@nomiclabs/hardhat-ethers";
+import { Contract, PopulatedTransaction, Transaction } from "ethers";
 
 const ZeroState =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -29,6 +30,14 @@ describe("SecretDelay", async () => {
     );
     return { ...base, Modifier, modifier };
   });
+
+  const setupTestContract = async (address: string) => {
+    const TestContract = await ethers.getContractFactory("TestContract");
+    const testContract = await TestContract.deploy();
+    await testContract.transferOwnership(address);
+
+    return testContract;
+  };
 
   const [user1] = waffle.provider.getWallets();
 
@@ -262,9 +271,80 @@ describe("SecretDelay", async () => {
       await expect(txNonce._hex).to.be.equals("0x00");
       await avatar.exec(modifier.address, 0, tx.data);
       await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
-      await expect(avatar.exec(modifier.address, 0, tx2.data));
+      await avatar.exec(modifier.address, 0, tx2.data);
       txNonce = await modifier.txNonce();
+
       await expect(txNonce._hex).to.be.equals("0x01");
+    });
+
+    context("with two enqueued txs", () => {
+      let testContract: Contract, modifier: Contract, avatar: Contract;
+
+      beforeEach("enqueue and approve two transactions", async () => {
+        ({ avatar, modifier } = await setupTestWithTestAvatar());
+        testContract = await setupTestContract(avatar.address);
+
+        let tx = await modifier.populateTransaction.setTxCooldown(42);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        tx = await modifier.populateTransaction.enableModule(user1.address);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        await avatar.setModule(modifier.address);
+
+        const tx2 = await testContract.populateTransaction.pushButton();
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          tx2.data,
+          0
+        );
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          tx2.data,
+          0
+        );
+      });
+
+      context("with no approved tx", () => {
+        it("sets txNonce", async () => {
+          const tx = await modifier.populateTransaction.setTxNonce(1);
+          await avatar.exec(modifier.address, 0, tx.data);
+
+          expect(await modifier.txNonce()).to.equal(1);
+        });
+      });
+
+      context("with two approved tx", () => {
+        it("decrements number of approved transactions", async () => {
+          let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(
+            0,
+            2
+          );
+          await avatar.exec(modifier.address, 0, tx3.data);
+
+          const tx = await modifier.populateTransaction.setTxNonce(1);
+          await avatar.exec(modifier.address, 0, tx.data);
+
+          expect(await modifier.approved()).to.equal(1);
+        });
+      });
+
+      context("with two approved tx and jump to end of queue", () => {
+        it("sets number of approved to zero", async () => {
+          let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(
+            0,
+            1
+          );
+          await avatar.exec(modifier.address, 0, tx3.data);
+
+          const tx = await modifier.populateTransaction.setTxNonce(2);
+          await avatar.exec(modifier.address, 0, tx.data);
+
+          expect(await modifier.approved()).to.equal(0);
+        });
+      });
     });
   });
 
@@ -370,6 +450,92 @@ describe("SecretDelay", async () => {
       ).to.be.revertedWith("Transaction is still in cooldown");
     });
 
+    context("when transaction is approved", () => {
+      let testContract: Contract, modifier: Contract, avatar: Contract;
+      let pushButtonTx: PopulatedTransaction;
+
+      beforeEach("enqueue two tx", async () => {
+        ({ avatar, modifier } = await setupTestWithTestAvatar());
+        testContract = await setupTestContract(avatar.address);
+
+        let tx = await modifier.populateTransaction.setTxCooldown(42);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        tx = await modifier.populateTransaction.enableModule(user1.address);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        await avatar.setModule(modifier.address);
+
+        pushButtonTx = await testContract.populateTransaction.pushButton();
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          pushButtonTx.data,
+          0
+        );
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          pushButtonTx.data,
+          0
+        );
+
+        let tx3 = await modifier.populateTransaction.approveNext(1);
+        await avatar.exec(modifier.address, 0, tx3.data);
+      });
+
+      it("executes", async () => {
+        await expect(
+          modifier.executeNextTx(testContract.address, 0, pushButtonTx.data, 0)
+        ).to.emit(testContract, "ButtonPushed");
+      });
+
+      it("decrements approved transactions", async () => {
+        await modifier.executeNextTx(
+          testContract.address,
+          0,
+          pushButtonTx.data,
+          0
+        );
+
+        expect(await modifier.approved()).to.equal(0);
+      });
+    });
+
+    // it("executes during cooldown if transaction had been approved", async () => {
+    //   const { avatar, modifier } = await setupTestWithTestAvatar();
+
+    //   const TestContract = await ethers.getContractFactory("TestContract");
+    //   const testContract = await TestContract.deploy();
+    //   await testContract.transferOwnership(avatar.address);
+
+    //   let tx = await modifier.populateTransaction.setTxCooldown(42);
+    //   await avatar.exec(modifier.address, 0, tx.data);
+
+    //   tx = await modifier.populateTransaction.enableModule(user1.address);
+    //   await avatar.exec(modifier.address, 0, tx.data);
+
+    //   const tx2 = await testContract.populateTransaction.pushButton();
+    //   await modifier.execTransactionFromModule(
+    //     testContract.address,
+    //     0,
+    //     tx2.data,
+    //     0
+    //   );
+    //   await expect(
+    //     modifier.executeNextTx(user1.address, 42, "0x", 0)
+    //   ).to.be.revertedWith("Transaction is still in cooldown");
+
+    //   let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(0);
+    //   await avatar.exec(modifier.address, 0, tx3.data);
+
+    //   await avatar.setModule(modifier.address);
+
+    //   await expect(
+    //     modifier.executeNextTx(testContract.address, 0, tx2.data, 0)
+    //   ).to.emit(testContract, "ButtonPushed");
+    // });
+
     it("throws if transaction has expired", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
@@ -467,6 +633,167 @@ describe("SecretDelay", async () => {
       await expect(parseInt(txNonce._hex)).to.be.equals(3);
       await expect(parseInt(queueNonce._hex)).to.be.equals(5);
       await expect(modifier.executeNextTx(user1.address, 0, "0x", 0));
+    });
+  });
+
+  describe("setTxNonceAndApprove()", async () => {
+    it("throws if not authorized", async () => {
+      const { modifier } = await setupTestWithTestAvatar();
+      await expect(modifier.setTxNonceAndApprove(42, 1)).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
+    });
+
+    it("reverts if attempting to skip all transactions", async () => {
+      const { avatar, modifier } = await setupTestWithTestAvatar();
+      const tx = await modifier.populateTransaction.enableModule(user1.address);
+      const tx2 = await modifier.populateTransaction.setTxNonceAndApprove(1, 1);
+
+      expect(await modifier.approved()).to.equal(0);
+
+      await avatar.exec(modifier.address, 0, tx.data);
+      // await avatar.exec(modifier.address, 0, tx2.data);
+
+      await expect(
+        avatar.exec(modifier.address, 0, tx2.data)
+      ).to.be.revertedWith("Cannot skip all transactions");
+    });
+
+    it("increases the txNonce and resets approved when executed", async () => {
+      const { avatar, modifier } = await setupTestWithTestAvatar();
+      const TestContract = await ethers.getContractFactory("TestContract");
+      const testContract = await TestContract.deploy();
+      await testContract.transferOwnership(avatar.address);
+
+      let tx = await modifier.populateTransaction.setTxCooldown(42);
+      await avatar.exec(modifier.address, 0, tx.data);
+
+      tx = await modifier.populateTransaction.enableModule(user1.address);
+      await avatar.exec(modifier.address, 0, tx.data);
+
+      const tx2 = await testContract.populateTransaction.pushButton();
+      await modifier.execTransactionFromModule(
+        testContract.address,
+        0,
+        tx2.data,
+        0
+      );
+
+      let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(0, 1);
+      await avatar.exec(modifier.address, 0, tx3.data);
+
+      await avatar.setModule(modifier.address);
+
+      await expect(
+        modifier.executeNextTx(testContract.address, 0, tx2.data, 0)
+      ).to.emit(testContract, "ButtonPushed");
+
+      expect(await modifier.txNonce()).to.be.equal(await modifier.queueNonce());
+      expect(await modifier.approved()).to.equal(0);
+    });
+
+    context("with two enqueued transactions", () => {
+      let testContract: Contract, modifier: Contract, avatar: Contract;
+
+      let pushButtonTx: PopulatedTransaction;
+
+      beforeEach("enqueue two tx and approve second tx", async () => {
+        ({ avatar, modifier } = await setupTestWithTestAvatar());
+        testContract = await setupTestContract(avatar.address);
+
+        let tx = await modifier.populateTransaction.setTxCooldown(42);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        tx = await modifier.populateTransaction.enableModule(user1.address);
+        await avatar.exec(modifier.address, 0, tx.data);
+
+        await avatar.setModule(modifier.address);
+
+        pushButtonTx = await testContract.populateTransaction.pushButton();
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          pushButtonTx.data,
+          0
+        );
+        await modifier.execTransactionFromModule(
+          testContract.address,
+          0,
+          pushButtonTx.data,
+          0
+        );
+
+        let tx3 = await modifier.populateTransaction.setTxNonceAndApprove(1, 1);
+        await avatar.exec(modifier.address, 0, tx3.data);
+      });
+
+      it("executes the second tx", async () => {
+        await expect(
+          modifier.executeNextTx(testContract.address, 0, pushButtonTx.data, 0)
+        ).to.emit(testContract, "ButtonPushed");
+        expect(await modifier.queueNonce()).to.equal(2);
+        expect(await modifier.txNonce()).to.equal(2);
+      });
+    });
+  });
+
+  describe("approveNext()", async () => {
+    let testContract: Contract, modifier: Contract, avatar: Contract;
+
+    let pushButtonTx: PopulatedTransaction;
+
+    beforeEach("enqueue two tx", async () => {
+      ({ avatar, modifier } = await setupTestWithTestAvatar());
+      testContract = await setupTestContract(avatar.address);
+
+      let tx = await modifier.populateTransaction.setTxCooldown(42);
+      await avatar.exec(modifier.address, 0, tx.data);
+
+      tx = await modifier.populateTransaction.enableModule(user1.address);
+      await avatar.exec(modifier.address, 0, tx.data);
+
+      await avatar.setModule(modifier.address);
+
+      pushButtonTx = await testContract.populateTransaction.pushButton();
+      await modifier.execTransactionFromModule(
+        testContract.address,
+        0,
+        pushButtonTx.data,
+        0
+      );
+      await modifier.execTransactionFromModule(
+        testContract.address,
+        0,
+        pushButtonTx.data,
+        0
+      );
+    });
+
+    context("with parameter is zero", () => {
+      it("reverts 'Must approve at least one tx'", async () => {
+        let tx = await modifier.populateTransaction.approveNext(0);
+
+        await expect(
+          avatar.exec(modifier.address, 0, tx.data)
+        ).to.be.revertedWith("Must approve at least one tx");
+      });
+    });
+
+    context("when approving more tx than enqueued", () => {
+      it("reverts 'Cannot approve unknown tx'", async () => {
+        let tx = await modifier.populateTransaction.approveNext(3);
+
+        await expect(
+          avatar.exec(modifier.address, 0, tx.data)
+        ).to.be.revertedWith("Cannot approve unknown tx");
+      });
+    });
+
+    it("sets approved", async () => {
+      let tx = await modifier.populateTransaction.approveNext(2);
+
+      await avatar.exec(modifier.address, 0, tx.data);
+      expect(await modifier.approved()).to.equal(2);
     });
   });
 });

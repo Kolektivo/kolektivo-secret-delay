@@ -18,11 +18,14 @@ contract SecretDelay is Modifier {
     bytes data,
     Enum.Operation operation
   );
+  event TransactionPromoted(uint256 indexed nonce);
 
   uint256 public txCooldown;
   uint256 public txExpiration;
   uint256 public txNonce;
   uint256 public queueNonce;
+  uint256 public approved;
+
   // Mapping of queue nonce to transaction hash.
   mapping(uint256 => bytes32) public txHash;
   // Mapping of queue nonce to creation timestamp.
@@ -106,7 +109,24 @@ contract SecretDelay is Modifier {
   function setTxNonce(uint256 _nonce) public onlyOwner {
     require(_nonce > txNonce, "New nonce must be higher than current txNonce");
     require(_nonce <= queueNonce, "Cannot be higher than queueNonce");
+
+    adjustApprovals(_nonce);
     txNonce = _nonce;
+  }
+
+  function setTxNonceAndApprove(uint256 _nonce, uint256 _transactions)
+    public
+    onlyOwner
+  {
+    require(_nonce < queueNonce, "Cannot skip all transactions");
+    if (_nonce > txNonce) setTxNonce(_nonce);
+    approveNext(_transactions);
+  }
+
+  function approveNext(uint256 transactions) public onlyOwner {
+    require(transactions > 0, "Must approve at least one tx");
+    require(queueNonce - txNonce >= transactions, "Cannot approve unknown tx");
+    approved = transactions;
   }
 
   /// @dev Adds a transaction to the queue (same as avatar interface so that this can be placed between other modules and the avatar).
@@ -149,7 +169,7 @@ contract SecretDelay is Modifier {
   ) public {
     require(txNonce < queueNonce, "Transaction queue is empty");
     require(
-      block.timestamp - txCreatedAt[txNonce] >= txCooldown,
+      (block.timestamp - txCreatedAt[txNonce] >= txCooldown) || approved > 0,
       "Transaction is still in cooldown"
     );
     if (txExpiration != 0) {
@@ -163,6 +183,7 @@ contract SecretDelay is Modifier {
       "Transaction hashes do not match"
     );
     txNonce++;
+    if (approved > 0) approved--;
     require(exec(to, value, data, operation), "Module transaction failed");
   }
 
@@ -191,5 +212,15 @@ contract SecretDelay is Modifier {
 
   function getTxCreatedAt(uint256 _nonce) public view returns (uint256) {
     return (txCreatedAt[_nonce]);
+  }
+
+  function adjustApprovals(uint256 _nonce) internal {
+    uint256 delta = _nonce - txNonce;
+
+    if (delta > approved) {
+      if (approved != 0) approved = 0;
+    } else {
+      approved -= delta;
+    }
   }
 }
