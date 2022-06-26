@@ -177,6 +177,7 @@ describe("SecretDelay", async () => {
 
   describe("enqueueSecretTx()", async () => {
     let avatar: Contract, modifier: Contract, hashedTx: string, salt: number;
+    const testUri = "ipfsHash";
 
     beforeEach("setup contracts", async () => {
       ({ avatar, modifier } = await setupTestWithTestAvatar());
@@ -191,9 +192,9 @@ describe("SecretDelay", async () => {
     });
 
     it("throws if not authorized", async () => {
-      await expect(modifier.enqueueSecretTx(hashedTx)).to.be.revertedWith(
-        "Module not authorized"
-      );
+      await expect(
+        modifier.enqueueSecretTx(hashedTx, testUri)
+      ).to.be.revertedWith("Module not authorized");
     });
 
     it("increments queueNonce", async () => {
@@ -202,7 +203,7 @@ describe("SecretDelay", async () => {
       let queueNonce = await modifier.queueNonce();
 
       await expect(queueNonce._hex).to.be.equals("0x00");
-      await modifier.enqueueSecretTx(hashedTx);
+      await modifier.enqueueSecretTx(hashedTx, testUri);
       queueNonce = await modifier.queueNonce();
       await expect(queueNonce._hex).to.be.equals("0x01");
     });
@@ -220,7 +221,7 @@ describe("SecretDelay", async () => {
       );
 
       await expect(await modifier.getTxHash(0)).to.be.equals(ZeroState);
-      await modifier.enqueueSecretTx(hashedTx);
+      await modifier.enqueueSecretTx(hashedTx, testUri);
       await expect(await modifier.getTxHash(0)).to.be.equals(txHash);
     });
 
@@ -230,7 +231,7 @@ describe("SecretDelay", async () => {
       await avatar.exec(modifier.address, 0, tx.data);
 
       await expect(expectedTimestamp._hex).to.be.equals("0x00");
-      let receipt = await modifier.enqueueSecretTx(hashedTx);
+      let receipt = await modifier.enqueueSecretTx(hashedTx, testUri);
 
       let blockNumber = receipt.blockNumber;
 
@@ -248,15 +249,15 @@ describe("SecretDelay", async () => {
       await avatar.exec(modifier.address, 0, tx.data);
       const expectedQueueNonce = await modifier.queueNonce;
 
-      await expect(await modifier.enqueueSecretTx(hashedTx))
+      await expect(await modifier.enqueueSecretTx(hashedTx, testUri))
         .to.emit(modifier, "SecretTransactionAdded")
-        .withArgs(expectedQueueNonce, hashedTx, salt);
+        .withArgs(expectedQueueNonce, hashedTx, testUri, salt);
     });
 
     it("increments the salt", async () => {
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
-      await modifier.enqueueSecretTx(hashedTx);
+      await modifier.enqueueSecretTx(hashedTx, testUri);
 
       expect(await modifier.salt()).to.equal(salt + 1);
     });
@@ -532,6 +533,7 @@ describe("SecretDelay", async () => {
     let avatar: Contract, modifier: Contract, salt: number;
 
     const ethAmount = 420;
+    const testUri = "ipfsHash";
 
     beforeEach("setup contracts", async () => {
       ({ avatar, modifier } = await setupTestWithTestAvatar());
@@ -550,7 +552,7 @@ describe("SecretDelay", async () => {
         ["address", "uint256", "bytes", "uint8", "uint256"],
         [FirstAddress, ethAmount, "0x", 0, salt]
       );
-      await modifier.enqueueSecretTx(hashedTx);
+      await modifier.enqueueSecretTx(hashedTx, testUri);
     });
 
     it("reverts if hashes don't match: 'Transaction hashes do not match'", async () => {

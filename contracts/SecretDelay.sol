@@ -24,7 +24,8 @@ contract SecretDelay is Modifier {
   event SecretTransactionAdded(
     uint256 indexed queueNonce,
     bytes32 indexed txHash,
-    uint256 indexed salt
+    string indexed uri,
+    uint256 salt
   );
 
   CountersUpgradeable.Counter public salt;
@@ -162,10 +163,18 @@ contract SecretDelay is Modifier {
   /// @dev Adds a the has of a transaction to the queue
   /// @param hashedTransaction hash of the transaction
   /// @notice Can only be called by enabled modules
-  function enqueueSecretTx(bytes32 hashedTransaction) public moduleOnly {
+  function enqueueSecretTx(bytes32 hashedTransaction, string memory uri)
+    public
+    moduleOnly
+  {
     txHash[queueNonce] = hashedTransaction;
     txCreatedAt[queueNonce] = block.timestamp;
-    emit SecretTransactionAdded(queueNonce, txHash[queueNonce], salt.current());
+    emit SecretTransactionAdded(
+      queueNonce,
+      txHash[queueNonce],
+      uri,
+      salt.current()
+    );
 
     queueNonce++;
     salt.increment();
