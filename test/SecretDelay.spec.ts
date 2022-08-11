@@ -197,15 +197,15 @@ describe("SecretDelay", async () => {
       ).to.be.revertedWith("Module not authorized");
     });
 
-    it("increments queueNonce", async () => {
+    it("increments queuePointer", async () => {
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
-      let queueNonce = await modifier.queueNonce();
+      let queuePointer = await modifier.queuePointer();
 
-      await expect(queueNonce._hex).to.be.equals("0x00");
+      await expect(queuePointer._hex).to.be.equals("0x00");
       await modifier.enqueueSecretTx(hashedTx, testUri);
-      queueNonce = await modifier.queueNonce();
-      await expect(queueNonce._hex).to.be.equals("0x01");
+      queuePointer = await modifier.queuePointer();
+      await expect(queuePointer._hex).to.be.equals("0x01");
     });
 
     it("sets txHash", async () => {
@@ -247,11 +247,11 @@ describe("SecretDelay", async () => {
     it("emits transaction details", async () => {
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
-      const expectedQueueNonce = await modifier.queueNonce;
+      const expectedQueuePointer = await modifier.queuePointer;
 
       await expect(await modifier.enqueueSecretTx(hashedTx, testUri))
         .to.emit(modifier, "SecretTransactionAdded")
-        .withArgs(expectedQueueNonce, hashedTx, testUri, salt);
+        .withArgs(expectedQueuePointer, hashedTx, testUri, salt);
     });
 
     it("increments the salt", async () => {
@@ -329,7 +329,7 @@ describe("SecretDelay", async () => {
       ).to.be.revertedWith("Atleast veto one transaction");
     });
 
-    it("thows if nonce is more than queueNonce + 1.", async () => {
+    it("thows if nonce is more than queuePointer + 1.", async () => {
       // queue index starts from 0
       const transactionsInQueue = 3;
       const transactionsToVeto = transactionsInQueue + 1;
@@ -352,7 +352,7 @@ describe("SecretDelay", async () => {
 
       await expect(
         avatar.exec(modifier.address, 0, tx2.data)
-      ).to.be.revertedWith("Cannot be higher than queueNonce");
+      ).to.be.revertedWith("Cannot be higher than queuePointer");
     });
 
     it("Vetos transaction", async () => {
@@ -390,16 +390,16 @@ describe("SecretDelay", async () => {
       ).to.be.revertedWith("Module not authorized");
     });
 
-    it("increments queueNonce", async () => {
+    it("increments queuePointer", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
-      let queueNonce = await modifier.queueNonce();
+      let queuePointer = await modifier.queuePointer();
 
-      await expect(queueNonce._hex).to.be.equals("0x00");
+      await expect(queuePointer._hex).to.be.equals("0x00");
       await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
-      queueNonce = await modifier.queueNonce();
-      await expect(queueNonce._hex).to.be.equals("0x01");
+      queuePointer = await modifier.queuePointer();
+      await expect(queuePointer._hex).to.be.equals("0x01");
     });
 
     it("sets txHash", async () => {
@@ -442,14 +442,14 @@ describe("SecretDelay", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       await avatar.exec(modifier.address, 0, tx.data);
-      const expectedQueueNonce = await modifier.queueNonce;
+      const expectedQueuePointer = await modifier.queuePointer;
 
       await expect(
         modifier.execTransactionFromModule(user1.address, 42, "0x", 0)
       )
         .to.emit(modifier, "TransactionAdded")
         .withArgs(
-          expectedQueueNonce,
+          expectedQueuePointer,
           await modifier.getTransactionHash(user1.address, 42, "0x", 0),
           user1.address,
           42,
@@ -632,9 +632,9 @@ describe("SecretDelay", async () => {
       }
       await expect(modifier.skipExpired());
       let txNonce = await modifier.txNonce();
-      let queueNonce = await modifier.queueNonce();
+      let queuePointer = await modifier.queuePointer();
       await expect(parseInt(txNonce._hex)).to.be.equals(3);
-      await expect(parseInt(queueNonce._hex)).to.be.equals(5);
+      await expect(parseInt(queuePointer._hex)).to.be.equals(5);
       await expect(modifier.executeNextTx(user1.address, 0, "0x", 0));
     });
   });

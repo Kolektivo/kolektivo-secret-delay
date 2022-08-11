@@ -14,7 +14,7 @@ contract SecretDelay is Modifier {
     address target
   );
   event TransactionAdded(
-    uint256 indexed queueNonce,
+    uint256 indexed queuePointer,
     bytes32 indexed txHash,
     address to,
     uint256 value,
@@ -22,7 +22,7 @@ contract SecretDelay is Modifier {
     Enum.Operation operation
   );
   event SecretTransactionAdded(
-    uint256 indexed queueNonce,
+    uint256 indexed queuePointer,
     bytes32 indexed txHash,
     string indexed uri,
     uint256 salt
@@ -36,14 +36,14 @@ contract SecretDelay is Modifier {
   uint256 public txCooldown;
   uint256 public txExpiration;
   uint256 public txNonce; // index of proposal in queue to be executed
-  uint256 public queueNonce; // index of last slot in queue where next proposal is added
+  uint256 public queuePointer; // index of last slot in queue where next proposal is added
   // Mapping of queue nonce to transaction hash.
   mapping(uint256 => bytes32) public txHash;
   // Mapping of queue nonce to creation timestamp.
   mapping(uint256 => uint256) public txCreatedAt;
 
   modifier isExecutable() {
-    require(txNonce < queueNonce, "Transaction queue is empty");
+    require(txNonce < queuePointer, "Transaction queue is empty");
     require(
       block.timestamp - txCreatedAt[txNonce] >= txCooldown,
       "Transaction is still in cooldown"
@@ -134,7 +134,7 @@ contract SecretDelay is Modifier {
   /// @notice This can only be called by the owner
   function vetoNextTransactions(uint256 _trxsToVeto) public onlyOwner {
     require(_trxsToVeto > 0, "Atleast veto one transaction");
-    require(_trxsToVeto + txNonce <= queueNonce, "Cannot be higher than queueNonce");
+    require(_trxsToVeto + txNonce <= queuePointer, "Cannot be higher than queuePointer");
     emit TransactionsVetoed(txNonce, _trxsToVeto);
     txNonce += _trxsToVeto;
   }
@@ -151,17 +151,17 @@ contract SecretDelay is Modifier {
     bytes calldata data,
     Enum.Operation operation
   ) public override moduleOnly returns (bool success) {
-    txHash[queueNonce] = getTransactionHash(to, value, data, operation);
-    txCreatedAt[queueNonce] = block.timestamp;
+    txHash[queuePointer] = getTransactionHash(to, value, data, operation);
+    txCreatedAt[queuePointer] = block.timestamp;
     emit TransactionAdded(
-      queueNonce,
-      txHash[queueNonce],
+      queuePointer,
+      txHash[queuePointer],
       to,
       value,
       data,
       operation
     );
-    queueNonce++;
+    queuePointer++;
     success = true;
   }
 
@@ -172,16 +172,16 @@ contract SecretDelay is Modifier {
     public
     moduleOnly
   {
-    txHash[queueNonce] = hashedTransaction;
-    txCreatedAt[queueNonce] = block.timestamp;
+    txHash[queuePointer] = hashedTransaction;
+    txCreatedAt[queuePointer] = block.timestamp;
     emit SecretTransactionAdded(
-      queueNonce,
-      txHash[queueNonce],
+      queuePointer,
+      txHash[queuePointer],
       uri,
       salt.current()
     );
 
-    queueNonce++;
+    queuePointer++;
     salt.increment();
   }
 
@@ -231,7 +231,7 @@ contract SecretDelay is Modifier {
     while (
       txExpiration != 0 &&
       txCreatedAt[txNonce] + txCooldown + txExpiration < block.timestamp &&
-      txNonce < queueNonce
+      txNonce < queuePointer
     ) {
       txNonce++;
     }
