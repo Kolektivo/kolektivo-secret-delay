@@ -27,18 +27,22 @@ contract SecretDelay is Modifier {
     string indexed uri,
     uint256 salt
   );
+  event TransactionsVetoed(
+    uint256 indexed startingVetoedTrxNonce,
+    uint256 numberOfTrxVetoed
+  );
 
   CountersUpgradeable.Counter public salt;
   uint256 public txCooldown;
   uint256 public txExpiration;
-  uint256 public txNonce;
-  uint256 public queueNonce;
+  uint256 public txNonce; // index of proposal in queue to be executed
+  uint256 public queueNonce; // index of last slot in queue where next proposal is added
   // Mapping of queue nonce to transaction hash.
   mapping(uint256 => bytes32) public txHash;
   // Mapping of queue nonce to creation timestamp.
   mapping(uint256 => uint256) public txCreatedAt;
 
-  modifier isExecutable {
+  modifier isExecutable() {
     require(txNonce < queueNonce, "Transaction queue is empty");
     require(
       block.timestamp - txCreatedAt[txNonce] >= txCooldown,
@@ -126,12 +130,13 @@ contract SecretDelay is Modifier {
   }
 
   /// @dev Sets transaction nonce. Used to invalidate or skip transactions in queue.
-  /// @param _nonce New transaction nonce
+  /// @param _trxsToVeto number of transactions to veto
   /// @notice This can only be called by the owner
-  function setTxNonce(uint256 _nonce) public onlyOwner {
-    require(_nonce > txNonce, "New nonce must be higher than current txNonce");
-    require(_nonce <= queueNonce, "Cannot be higher than queueNonce");
-    txNonce = _nonce;
+  function vetoNextTransactions(uint256 _trxsToVeto) public onlyOwner {
+    require(_trxsToVeto > 0, "Atleast veto one transaction");
+    require(_trxsToVeto + txNonce <= queueNonce, "Cannot be higher than queueNonce");
+    emit TransactionsVetoed(txNonce, _trxsToVeto);
+    txNonce += _trxsToVeto;
   }
 
   /// @dev Adds a transaction to the queue (same as avatar interface so that this can be placed between other modules and the avatar).

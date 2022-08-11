@@ -312,49 +312,73 @@ describe("SecretDelay", async () => {
     });
   });
 
-  describe("setTxNonce()", async () => {
+  describe("vetoNextTransactions()", async () => {
     it("throws if not authorized", async () => {
       const { modifier } = await setupTestWithTestAvatar();
-      await expect(modifier.setTxNonce(42)).to.be.revertedWith(
+      await expect(modifier.vetoNextTransactions(42)).to.be.revertedWith(
         "Ownable: caller is not the owner"
       );
     });
 
-    it("thows if nonce is less than current nonce.", async () => {
+    it("reverts when trying to veto zero transcations", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
-      const tx = await modifier.populateTransaction.setTxExpiration(60);
-      const tx2 = await modifier.populateTransaction.setTxNonce(0);
-      await expect(avatar.exec(modifier.address, 0, tx.data));
+      const tx2 = await modifier.populateTransaction.vetoNextTransactions(0);
 
       await expect(
         avatar.exec(modifier.address, 0, tx2.data)
-      ).to.be.revertedWith("New nonce must be higher than current txNonce");
+      ).to.be.revertedWith("Atleast veto one transaction");
     });
 
     it("thows if nonce is more than queueNonce + 1.", async () => {
+      // queue index starts from 0
+      const transactionsInQueue = 3;
+      const transactionsToVeto = transactionsInQueue + 1;
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
-      const tx2 = await modifier.populateTransaction.setTxNonce(42);
-      await expect(avatar.exec(modifier.address, 0, tx.data));
-      await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
+
+      // add a user as a module to simulate transactions coming from BAC
+      await avatar.exec(modifier.address, 0, tx.data);
+
+      // enqueues two proposal
+      for (let i = 0; i < transactionsInQueue; i++) {
+        await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
+      }
+
+      // generate transaction data to veto transactions more than transactions in queue
+      // queue index starts from 0
+      const tx2 = await modifier.populateTransaction.vetoNextTransactions(
+        transactionsToVeto
+      );
 
       await expect(
         avatar.exec(modifier.address, 0, tx2.data)
       ).to.be.revertedWith("Cannot be higher than queueNonce");
     });
 
-    it("sets nonce", async () => {
+    it("Vetos transaction", async () => {
+      const transactionsInQueue = 3;
+      const transactionsToVeto = transactionsInQueue;
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
-      const tx2 = await modifier.populateTransaction.setTxNonce(1);
       let txNonce = await modifier.txNonce();
 
-      await expect(txNonce._hex).to.be.equals("0x00");
+      expect(txNonce._hex).to.be.equals("0x00");
+
       await avatar.exec(modifier.address, 0, tx.data);
-      await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
-      await expect(avatar.exec(modifier.address, 0, tx2.data));
+
+      for (let i = 0; i < transactionsInQueue; i++) {
+        await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
+      }
+
+      const tx2 = await modifier.populateTransaction.vetoNextTransactions(
+        transactionsToVeto
+      );
+
+      await expect(avatar.exec(modifier.address, 0, tx2.data))
+        .to.emit(modifier, "TransactionsVetoed")
+        .withArgs(txNonce, transactionsToVeto);
       txNonce = await modifier.txNonce();
-      await expect(txNonce._hex).to.be.equals("0x01");
+      expect(txNonce).to.be.equals(transactionsInQueue);
     });
   });
 
