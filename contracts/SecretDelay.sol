@@ -31,12 +31,17 @@ contract SecretDelay is Modifier {
     uint256 indexed startingVetoedTrxNonce,
     uint256 numberOfTrxVetoed
   );
+  event TransactionsApproved(
+    uint256 indexed startingApprovedTrxNonce,
+    uint256 numberOfTrxApproved
+  );
 
   CountersUpgradeable.Counter public salt;
   uint256 public txCooldown;
   uint256 public txExpiration;
   uint256 public txNonce; // index of proposal in queue to be executed
   uint256 public queuePointer; // index of last slot in queue where next proposal is added
+  uint256 public approved; // number of next transactions approved to be executed before cooldown
   // Mapping of queue nonce to transaction hash.
   mapping(uint256 => bytes32) public txHash;
   // Mapping of queue nonce to creation timestamp.
@@ -45,7 +50,7 @@ contract SecretDelay is Modifier {
   modifier isExecutable() {
     require(txNonce < queuePointer, "Transaction queue is empty");
     require(
-      block.timestamp - txCreatedAt[txNonce] >= txCooldown,
+      block.timestamp - txCreatedAt[txNonce] >= txCooldown || approved > 0,
       "Transaction is still in cooldown"
     );
     if (txExpiration != 0) {
@@ -54,6 +59,7 @@ contract SecretDelay is Modifier {
         "Transaction expired"
       );
     }
+    if (approved > 0) approved--;
     _;
   }
 
@@ -135,8 +141,28 @@ contract SecretDelay is Modifier {
   function vetoNextTransactions(uint256 _trxsToVeto) public onlyOwner {
     require(_trxsToVeto > 0, "Atleast veto one transaction");
     require(_trxsToVeto + txNonce <= queuePointer, "Cannot be higher than queuePointer");
+    _adjustApprovals(txNonce+_trxsToVeto);
     emit TransactionsVetoed(txNonce, _trxsToVeto);
     txNonce += _trxsToVeto;
+  }
+
+  function vetoNextTransactionsAndApprove(uint256 _trxsToVeto, uint256 _transactions)
+    public
+    onlyOwner
+  {
+    // vetos transactions
+    vetoNextTransactions(_trxsToVeto);
+
+    // approves transactions
+    // note: unknown transactions won't be approved because if all transactions are vetoed
+    //       and no transactions in queue, it will revert execution
+    approveNext(_transactions);
+  }
+
+  function approveNext(uint256 _transactions) public onlyOwner {
+    require(_transactions > 0, "Must approve at least one tx");
+    require(queuePointer - txNonce >= _transactions, "Cannot approve unknown tx");
+    approved = _transactions;
   }
 
   /// @dev Adds a transaction to the queue (same as avatar interface so that this can be placed between other modules and the avatar).
@@ -262,5 +288,15 @@ contract SecretDelay is Modifier {
 
   function getTxCreatedAt(uint256 _nonce) public view returns (uint256) {
     return (txCreatedAt[_nonce]);
+  }
+
+  function _adjustApprovals(uint256 _nonce) internal {
+    uint256 delta = _nonce - txNonce;
+
+    if (delta > approved) {
+      if (approved != 0) approved = 0;
+    } else {
+      approved -= delta;
+    }
   }
 }
