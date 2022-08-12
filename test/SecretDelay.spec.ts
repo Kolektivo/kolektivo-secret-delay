@@ -320,27 +320,27 @@ describe("SecretDelay", async () => {
     });
   });
 
-  describe("vetoNextTransactions()", async () => {
+  describe("vetoTransactionsTill()", async () => {
     it("throws if not authorized", async () => {
       const { modifier } = await setupTestWithTestAvatar();
-      await expect(modifier.vetoNextTransactions(42)).to.be.revertedWith(
+      await expect(modifier.vetoTransactionsTill(42)).to.be.revertedWith(
         "Ownable: caller is not the owner"
       );
     });
 
     it("reverts when trying to veto zero transcations", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
-      const tx2 = await modifier.populateTransaction.vetoNextTransactions(0);
+      const tx2 = await modifier.populateTransaction.vetoTransactionsTill(0);
 
       await expect(
         avatar.exec(modifier.address, 0, tx2.data)
-      ).to.be.revertedWith("Atleast veto one transaction");
+      ).to.be.revertedWith("New nonce must be higher than current txNonce");
     });
 
     it("thows if nonce is more than queuePointer + 1.", async () => {
       // queue index starts from 0
       const transactionsInQueue = 3;
-      const transactionsToVeto = transactionsInQueue + 1;
+      const newTxNonce = transactionsInQueue + 1;
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
 
@@ -354,8 +354,8 @@ describe("SecretDelay", async () => {
 
       // generate transaction data to veto transactions more than transactions in queue
       // queue index starts from 0
-      const tx2 = await modifier.populateTransaction.vetoNextTransactions(
-        transactionsToVeto
+      const tx2 = await modifier.populateTransaction.vetoTransactionsTill(
+        newTxNonce
       );
 
       await expect(
@@ -365,7 +365,7 @@ describe("SecretDelay", async () => {
 
     it("Vetos transaction", async () => {
       const transactionsInQueue = 3;
-      const transactionsToVeto = transactionsInQueue;
+      const newTxNonce = transactionsInQueue;
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
       let txNonce = await modifier.txNonce();
@@ -378,13 +378,13 @@ describe("SecretDelay", async () => {
         await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
       }
 
-      const tx2 = await modifier.populateTransaction.vetoNextTransactions(
-        transactionsToVeto
+      const tx2 = await modifier.populateTransaction.vetoTransactionsTill(
+        newTxNonce
       );
 
       await expect(avatar.exec(modifier.address, 0, tx2.data))
         .to.emit(modifier, "TransactionsVetoed")
-        .withArgs(txNonce, transactionsToVeto);
+        .withArgs(txNonce, newTxNonce);
       txNonce = await modifier.txNonce();
       expect(txNonce).to.be.equals(transactionsInQueue);
     });
@@ -420,7 +420,7 @@ describe("SecretDelay", async () => {
 
       context("with no approved tx", () => {
         it("sets txNonce", async () => {
-          const tx = await modifier.populateTransaction.vetoNextTransactions(1);
+          const tx = await modifier.populateTransaction.vetoTransactionsTill(1);
           await avatar.exec(modifier.address, 0, tx.data);
 
           expect(await modifier.txNonce()).to.equal(1);
@@ -430,13 +430,13 @@ describe("SecretDelay", async () => {
       context("with two approved tx", () => {
         it("decrements number of approved transactions", async () => {
         await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
-          let tx3 = await modifier.populateTransaction.vetoNextTransactionsAndApprove(
-            1,
+          let tx3 = await modifier.populateTransaction.vetoTransactionsTillAndApprove(
+            0,
             2
           );
           await avatar.exec(modifier.address, 0, tx3.data);
 
-          const tx = await modifier.populateTransaction.vetoNextTransactions(1);
+          const tx = await modifier.populateTransaction.vetoTransactionsTill(1);
           await avatar.exec(modifier.address, 0, tx.data);
 
           expect(await modifier.approved()).to.equal(1);
@@ -446,13 +446,13 @@ describe("SecretDelay", async () => {
       context("with two approved tx and jump to end of queue", () => {
         it("sets number of approved to zero", async () => {
           await modifier.execTransactionFromModule(user1.address, 0, "0x", 0);
-          let tx3 = await modifier.populateTransaction.vetoNextTransactionsAndApprove(
-            1,
+          let tx3 = await modifier.populateTransaction.vetoTransactionsTillAndApprove(
+            0,
             1
           );
           await avatar.exec(modifier.address, 0, tx3.data);
 
-          const tx = await modifier.populateTransaction.vetoNextTransactions(2);
+          const tx = await modifier.populateTransaction.vetoTransactionsTill(2);
           await avatar.exec(modifier.address, 0, tx.data);
 
           expect(await modifier.approved()).to.equal(0);
@@ -803,10 +803,10 @@ describe("SecretDelay", async () => {
       await expect(modifier.executeNextTx(user1.address, 0, "0x", 0));
     });
   });
-  describe("vetoNextTransactionsAndApprove()", async () => {
+  describe("vetoTransactionsTillAndApprove()", async () => {
     it("throws if not authorized", async () => {
       const { modifier } = await setupTestWithTestAvatar();
-      await expect(modifier.vetoNextTransactionsAndApprove(42, 1)).to.be.revertedWith(
+      await expect(modifier.vetoTransactionsTillAndApprove(42, 1)).to.be.revertedWith(
         "Ownable: caller is not the owner"
       );
     });
@@ -814,7 +814,7 @@ describe("SecretDelay", async () => {
     it("reverts if attempting to skip all transactions", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
       const tx = await modifier.populateTransaction.enableModule(user1.address);
-      const tx2 = await modifier.populateTransaction.vetoNextTransactionsAndApprove(1, 1);
+      const tx2 = await modifier.populateTransaction.vetoTransactionsTillAndApprove(1, 1);
 
       expect(await modifier.approved()).to.equal(0);
 
@@ -852,7 +852,7 @@ describe("SecretDelay", async () => {
         0
       );
 
-      let tx3 = await modifier.populateTransaction.vetoNextTransactionsAndApprove(1, 1);
+      let tx3 = await modifier.populateTransaction.vetoTransactionsTillAndApprove(1, 1);
       await avatar.exec(modifier.address, 0, tx3.data);
 
       await avatar.setModule(modifier.address);
@@ -896,7 +896,7 @@ describe("SecretDelay", async () => {
           0
         );
 
-        let tx3 = await modifier.populateTransaction.vetoNextTransactionsAndApprove(1, 1);
+        let tx3 = await modifier.populateTransaction.vetoTransactionsTillAndApprove(1, 1);
         await avatar.exec(modifier.address, 0, tx3.data);
       });
 

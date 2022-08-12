@@ -136,22 +136,22 @@ contract SecretDelay is Modifier {
   }
 
   /// @dev Sets transaction nonce. Used to invalidate or skip transactions in queue.
-  /// @param _trxsToVeto number of transactions to veto
+  /// @param _newTxNonce 1 + nonce of transaction to veto
   /// @notice This can only be called by the owner
-  function vetoNextTransactions(uint256 _trxsToVeto) public onlyOwner {
-    require(_trxsToVeto > 0, "Atleast veto one transaction");
-    require(_trxsToVeto + txNonce <= queuePointer, "Cannot be higher than queuePointer");
-    _adjustApprovals(txNonce+_trxsToVeto);
-    emit TransactionsVetoed(txNonce, _trxsToVeto);
-    txNonce += _trxsToVeto;
+  function vetoTransactionsTill(uint256 _newTxNonce) public onlyOwner {
+    require(_newTxNonce > txNonce, "New nonce must be higher than current txNonce");
+    require(_newTxNonce <= queuePointer, "Cannot be higher than queuePointer");
+    _adjustApprovals(_newTxNonce);
+    emit TransactionsVetoed(txNonce, _newTxNonce - txNonce);
+    txNonce = _newTxNonce;
   }
 
-  function vetoNextTransactionsAndApprove(uint256 _trxsToVeto, uint256 _transactions)
+  function vetoTransactionsTillAndApprove(uint256 _newTxNonce, uint256 _transactions)
     public
     onlyOwner
   {
     // vetos transactions
-    vetoNextTransactions(_trxsToVeto);
+    if (_newTxNonce > txNonce) vetoTransactionsTill(_newTxNonce);
 
     // approves transactions
     // note: unknown transactions won't be approved because if all transactions are vetoed
@@ -162,6 +162,7 @@ contract SecretDelay is Modifier {
   function approveNext(uint256 _transactions) public onlyOwner {
     require(_transactions > 0, "Must approve at least one tx");
     require(queuePointer - txNonce >= _transactions, "Cannot approve unknown tx");
+    emit TransactionsApproved(txNonce, _transactions);
     approved = _transactions;
   }
 
