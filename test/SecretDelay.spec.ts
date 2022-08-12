@@ -615,39 +615,39 @@ describe("SecretDelay", async () => {
       });
     });
 
-    // it("executes during cooldown if transaction had been approved", async () => {
-    //   const { avatar, modifier } = await setupTestWithTestAvatar();
+    it("executes during cooldown if transaction had been approved", async () => {
+      const { avatar, modifier } = await setupTestWithTestAvatar();
 
-    //   const TestContract = await ethers.getContractFactory("TestContract");
-    //   const testContract = await TestContract.deploy();
-    //   await testContract.transferOwnership(avatar.address);
+      const TestContract = await ethers.getContractFactory("TestContract");
+      const testContract = await TestContract.deploy();
+      await testContract.transferOwnership(avatar.address);
 
-    //   let tx = await modifier.populateTransaction.setTxCooldown(42);
-    //   await avatar.exec(modifier.address, 0, tx.data);
+      let tx = await modifier.populateTransaction.setTxCooldown(42);
+      await avatar.exec(modifier.address, 0, tx.data);
 
-    //   tx = await modifier.populateTransaction.enableModule(user1.address);
-    //   await avatar.exec(modifier.address, 0, tx.data);
+      tx = await modifier.populateTransaction.enableModule(user1.address);
+      await avatar.exec(modifier.address, 0, tx.data);
 
-    //   const tx2 = await testContract.populateTransaction.pushButton();
-    //   await modifier.execTransactionFromModule(
-    //     testContract.address,
-    //     0,
-    //     tx2.data,
-    //     0
-    //   );
-    //   await expect(
-    //     modifier.executeNextTx(user1.address, 42, "0x", 0)
-    //   ).to.be.revertedWith("Transaction is still in cooldown");
+      const tx2 = await testContract.populateTransaction.pushButton();
+      await modifier.execTransactionFromModule(
+        testContract.address,
+        0,
+        tx2.data,
+        0
+      );
+      await expect(
+        modifier.executeNextTx(user1.address, 42, "0x", 0)
+      ).to.be.revertedWith("Transaction is still in cooldown");
 
-    //   let tx3 = await modifier.populateTransaction.vetoNextTransactionsAndApprove(0);
-    //   await avatar.exec(modifier.address, 0, tx3.data);
+      let tx3 = await modifier.populateTransaction.approveNext(1);
+      await avatar.exec(modifier.address, 0, tx3.data);
 
-    //   await avatar.setModule(modifier.address);
+      await avatar.setModule(modifier.address);
 
-    //   await expect(
-    //     modifier.executeNextTx(testContract.address, 0, tx2.data, 0)
-    //   ).to.emit(testContract, "ButtonPushed");
-    // });
+      await expect(
+        modifier.executeNextTx(testContract.address, 0, tx2.data, 0)
+      ).to.emit(testContract, "ButtonPushed");
+    });
 
     it("throws if transaction has expired", async () => {
       const { avatar, modifier } = await setupTestWithTestAvatar();
